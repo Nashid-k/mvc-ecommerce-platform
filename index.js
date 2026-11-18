@@ -9,46 +9,47 @@ require('./middlewares/passport');
 
 dotenv.config();
 
-mongoose.connect(process.env.mongo_url);
-
-
-
-
-
-
 const userRoute = require('./routes/userRoute');
 const adminRoute = require('./routes/adminRoute');
 
 const app = express();
-app.set('view engine','ejs')
+const port = process.env.PORT || 3000;
 
-// Middlewares
+if (!process.env.mongo_url) {
+    throw new Error('mongo_url must be configured before starting the application.');
+}
+if (!process.env.SESSION_SECRET) {
+    throw new Error('SESSION_SECRET must be configured before starting the application.');
+}
+
+app.set('view engine', 'ejs');
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Session Middleware
 app.use(session({
     secret: process.env.SESSION_SECRET,
     resave: false,
-    saveUninitialized: false
+    saveUninitialized: false,
+    cookie: {
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production'
+    }
 }));
 
 app.use(flash());
 app.use(nocache());
 
-// Initialize Passport.js
 app.use(passport.initialize());
 app.use(passport.session());
 
-// Static files
 app.use(express.static(__dirname + '/public'));
 app.use('/productImages', express.static('upload'));
 
-// Routes
 app.use('/', userRoute);
 app.use('/admin', adminRoute);
 
-// Google OAuth Routes
 app.get('/auth', passport.authenticate('google', { scope: ['email', 'profile'] }));
 
 app.get('/auth/callback', passport.authenticate('google', {
@@ -58,18 +59,23 @@ app.get('/auth/callback', passport.authenticate('google', {
 
 app.get('/auth/callback/success', (req, res) => {
     if (req.user) {
-        res.redirect('/home'); 
-    } else {
-        res.redirect('/login'); 
+        return res.redirect('/home');
     }
+    return res.redirect('/login');
 });
 
-app.get('/auth/callback/failure', (req, res) => {
-    res.send("Error");
+app.get('/auth/callback/failure', (_req, res) => {
+    res.send('Authentication failed');
 });
 
-const port = process.env.PORT || 3000;
-app.listen(port, () => {
-    console.log(`********************* CONNECTED TO DB **********************************`);
-    console.log(`Server is running on http://localhost:${port}`);
+async function startServer() {
+    await mongoose.connect(process.env.mongo_url);
+    app.listen(port, () => {
+        console.log('E-commerce application listening on port ' + port);
+    });
+}
+
+startServer().catch((error) => {
+    console.error('Failed to start e-commerce application:', error.message);
+    process.exit(1);
 });
